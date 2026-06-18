@@ -72,9 +72,17 @@ async def update_status_in_postgres(lead_id: str, new_status: str):
     except Exception as e:
         logging.error(f"Ошибка обновления статуса в PostgreSQL: {e}")
 
-def save_lead_to_sheets(lead_id: str, client_name: str, phone: str, pet: str, dimensions: str, comment: str):
+async def save_lead_to_sheets(lead_id: str, client_name: str, phone: str, pet: str, dimensions: str, comment: str):
+    """Асинхронная обертка для сохранения в Google Sheets"""
     if not GOOGLE_SHEET_ID or not GOOGLE_SERVICE_ACCOUNT_JSON:
         return
+    try:
+        await asyncio.to_thread(_sync_save_to_sheets, lead_id, client_name, phone, pet, dimensions, comment)
+    except Exception as e:
+        logging.error(f"Ошибка сохранения лида в Google Sheets: {e}")
+
+def _sync_save_to_sheets(lead_id: str, client_name: str, phone: str, pet: str, dimensions: str, comment: str):
+    """Синхронная функция для работы с Google Sheets"""
     try:
         creds_data = json.loads(GOOGLE_SERVICE_ACCOUNT_JSON)
         scopes = ['https://www.googleapis.com/auth/spreadsheets']
@@ -150,7 +158,8 @@ async def cmd_start(message: Message, state: FSMContext):
     welcome_text = (
         f"Здравствуйте, <b>{message.from_user.first_name}</b>! 🦎\n\n"
         "Добро пожаловать в частную мастерскую <b>CRAFT TERRARIUMS</b> (Москва, 2026).\n\n"
-        "Я создаю надежные, безопасные и эстетичные террариумы из кристального стекла М1 с полированной еврокромкой.\n\n"
+        "Я создаю надежные, безопасные и эстетичные террариумы из кристального стекла М1 с полированной евро кромкой. "
+        "Каждый террариум изготавливается вручную, с любовью к животному и соблюдением всех норм безопасности.\n\n"
         "Выберите интересующий вас раздел в меню ниже 👇"
     )
     await message.answer(welcome_text, reply_markup=get_main_keyboard())
@@ -160,11 +169,11 @@ async def show_packages(message: Message):
     packages_text = (
         "🔥 <b>ПОПУЛЯРНЫЕ ПАКЕТЫ УСЛУГ (Июнь 2026):</b>\n\n"
         "1️⃣ <b>Индивидуальный Кастом (от 4 000 руб.)</b>\n"
-        "Изготовление стеклянного объема строго по вашим размерам или чертежам. Стекло М1 4–6 мм, станочная полировка всех кромок. Высокое качество, безопасность.\n\n"
+        "Изготовление стеклянного объема строго по вашим размерам или чертежам. Стекло М1 4–6 мм, станочная полировка кромок, герметичный силикон 100%. Срок: 5–7 дней.\n\n"
         "2️⃣ <b>Комплекс «Под ключ» (от 12 000 руб.) — ХИТ 🦎</b>\n"
-        "Готовая экосистема «Заселяй и живи». Включает террариум, смонтированный УФ-свет, обогрев с терморегулятором и инструкцию по запуску.\n\n"
+        "Готовая экосистема «Заселяй и живи». Включает террариум, смонтированный УФ-свет, обогрев с терморегулятором, подложку, декор и 3D-фон. Полная консультация.\n\n"
         "3️⃣ <b>Флорариумы и Палюдариумы (от 18 000 руб.)</b>\n"
-        "Тропический рай с герметичным дном под водоем, тихим встроенным водопадом и живыми тропическими растениями.\n\n"
+        "Тропический рай с герметичным дном под водоем, тихим встроенным водопадом и живыми тропическими растениями. Для древесных лягушек, мхов, тритонов.\n\n"
         "👉 Чтобы рассчитать точную цену под ваш проект, нажмите кнопку <i>«Заказать по своим размерам»</i>."
     )
     await message.answer(packages_text, reply_markup=get_main_keyboard())
@@ -176,7 +185,7 @@ async def show_faq(message: Message):
         "📍 <b>Где находится мастерская?</b>\n"
         "Москва, м. Преображенская площадь. Доступен самовывоз.\n\n"
         "🚚 <b>Есть ли доставка?</b>\n"
-        "Да, осуществляю личную бережную автодоставку по Москве и Подмосковью «до двери» (от 1000 руб. в зависимости от расстояния).\n\n"
+        "Да, осуществляю личную бережную автодоставку по Москве и Подмосковью «до двери» (от 1000 руб. в зависимости от размера и расстояния).\n\n"
         "⌛️ <b>Какие сроки изготовления?</b>\n"
         "Обычно от 5 до 10 календарных дней.\n\n"
         "🛡 <b>Какая гарантия?</b>\n"
@@ -202,7 +211,8 @@ async def show_contacts(message: Message):
 async def start_lead_form(message: Message, state: FSMContext):
     await message.answer(
         "📝 Отлично! Давайте рассчитаем стоимость вашего будущего террариума.\n\n"
-        "<b>Шаг 1 из 4:</b> Напишите, пожалуйста, для какого именно питомца планируется террариум? (Например: Эублефарис, Леопардовый геккон, Бородатая ящерица)",
+        "<b>Шаг 1 из 4:</b> Напишите, пожалуйста, для какого именно питомца планируется террариум? "
+        "(Например: Эублефар, Кукуруза, Удав, Агама и т.д.)",
         reply_markup=ReplyKeyboardMarkup(keyboard=[[KeyboardButton(text="❌ Отмена")]], resize_keyboard=True)
     )
     await state.set_state(LeadForm.waiting_for_pet)
@@ -242,7 +252,7 @@ async def process_wishes(message: Message, state: FSMContext):
         one_time_keyboard=True
     )
     await message.answer(
-        "📞 <b>Шаг 4 из 4:</b> Нажмите кнопку <b>«Поделиться номером телефона»</b> ниже, чтобы я мог связаться с вами в течение 15–30 минут!\n\n"
+        "📞 <b>Шаг 4 из 4:</b> Нажмите кнопку <b>«Поделиться номером телефона»</b> ниже, чтобы я мог связаться с вами в течение 30 минут с расчетом.\n\n"
         "<i>Также можете просто написать ваш номер телефона вручную.</i>",
         reply_markup=contact_kb
     )
@@ -263,7 +273,7 @@ async def process_contact(message: Message, state: FSMContext):
 
     # 1. Запись в CRM
     await save_lead_to_postgres(lead_id, client_name, phone, pet, dimensions, wishes)
-    save_lead_to_sheets(lead_id, client_name, phone, pet, dimensions, wishes)
+    await save_lead_to_sheets(lead_id, client_name, phone, pet, dimensions, wishes)
 
     # 2. Подтверждение клиенту
     success_text = (
